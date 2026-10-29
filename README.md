@@ -1,40 +1,37 @@
-# ESP32-C3-WiFi-RC-PWM-EASY_TEST
-Control and test RC ESCs and servos from your phone using an ESP32-C3 Wi-Fi web interface.
+<div align="center">
+
 # ESP32-C3 WiFi RC Controller
 
-**Control RC ESCs and servos directly from your smartphone — no app, no router, no internet required.**
+**Control RC ESCs and servos from your smartphone — no app, no router, no internet required.**
 
-ESP32-C3 WiFi RC Controller is an open-source web-based controller for RC ESCs (Electronic Speed Controllers) and servos. It creates its own Wi-Fi access point and hosts a responsive control panel that you can access from your smartphone, tablet, or computer browser.
+[English](README.md) · [繁體中文](README.zh-TW.md)
 
-No dedicated mobile application is required. Simply connect to the ESP32's Wi-Fi network and open the control page.
+</div>
 
-## ✨ Features
+ESP32-C3 WiFi RC Controller is an open-source web-based controller for RC ESCs (Electronic Speed Controllers) and servos. It creates its own Wi-Fi access point and hosts a responsive control panel that you can open from a phone, tablet, or computer browser.
 
-- **Standalone Wi-Fi Access Point** — Connect directly to the ESP32-C3 without a router or internet connection.
-- **Browser-Based Control Panel** — Control your hardware using Safari, Chrome, or another modern browser.
-- **ESC Throttle Control** — Adjustable throttle from 0% to 100%.
-- **Servo Position Control** — Adjust servo position from 0° to 180°.
-- **Real-Time PWM Information** — View the current control pulse width in microseconds.
-- **Quick Controls** — Return to minimum throttle, set 25% throttle, adjust by small increments, or center the servo.
-- **Failsafe Timeout** — If control commands stop arriving, the output returns to minimum throttle or servo center.
-- **Lightweight and Easy to Customize** — Built with the Arduino framework, ESP32Servo, and the built-in ESP32 WebServer library.
+No dedicated mobile application is required. Connect to the ESP32's Wi-Fi network and open the control page.
 
-## 🧰 Hardware
+## Features
 
-Tested target:
+- **Standalone Wi-Fi access point** — connect directly without a router or internet connection.
+- **Browser-based control panel** — use Safari, Chrome, or another modern browser.
+- **ESC throttle control** — adjustable from 0% to 100%.
+- **Servo position control** — adjustable from 0° to 180°.
+- **PWM information** — display the current pulse width in microseconds.
+- **Quick controls** — minimum throttle, 25% preset, incremental adjustments, and servo centering.
+- **Failsafe timeout** — if control requests stop arriving, output returns to minimum throttle or servo center.
+- **Easy to customize** — built with the Arduino framework, ESP32Servo, and ESP32 WebServer.
 
-- ESP32-C3 Super Mini
+## Hardware
 
-Compatible hardware may include other ESP32 boards with suitable GPIO and PWM support.
+Primary target: **ESP32-C3 Super Mini**.
 
-You will also need:
-- An RC ESC and brushless motor, or a compatible servo
-- An appropriate external power supply
-- USB data cable for initial programming
+You will also need an RC ESC and brushless motor, or a compatible servo, plus an appropriate power supply and a USB data cable for programming.
 
-## 🔌 Wiring
+## Wiring
 
-The default signal output is **GPIO4**.
+Default signal output: **GPIO4**.
 
 | ESP32-C3 | ESC / Servo |
 |---|---|
@@ -42,22 +39,19 @@ The default signal output is **GPIO4**.
 | GND | Signal ground |
 | External power | ESC or servo power, according to device specifications |
 
-**Important:** Connect the ESP32 and ESC signal grounds together. Never connect a motor directly to an ESP32 GPIO pin. Do not connect the ESC battery positive lead to a GPIO pin.
+Connect the ESP32 and ESC signal grounds together. Never connect a motor directly to an ESP32 GPIO. Do not connect the ESC battery-positive lead to a GPIO pin.
 
-## 🚀 Getting Started
+## Getting Started
 
-### 1. Install the software
+1. Install the Arduino IDE and the ESP32 board package.
+2. Install the `ESP32Servo` library.
+3. Open `ESP32C3_WiFi_RC_Controller.ino`.
+4. Select `ESP32C3 Dev Module` or the correct board configuration.
+5. Compile and upload the firmware.
 
-1. Install the Arduino IDE.
-2. Install the ESP32 board package.
-3. Install the `ESP32Servo` library.
-4. Open `ESP32C3_WiFi_RC_Controller.ino`.
-5. Select `ESP32C3 Dev Module` or the appropriate board configuration.
-6. Compile and upload the firmware.
+### Connect your phone
 
-### 2. Connect to the controller
-
-After the ESP32 starts, connect your phone or computer to the following Wi-Fi network:
+Join the Wi-Fi network created by the ESP32:
 
 | Setting | Default |
 |---|---|
@@ -65,25 +59,15 @@ After the ESP32 starts, connect your phone or computer to the following Wi-Fi ne
 | Password | `rccontrol` |
 | Control panel | `http://192.168.4.1` |
 
-If your phone reports that the network has no internet access, choose to remain connected.
+If your phone says the network has no internet access, choose to remain connected.
 
-### 3. Select a control mode
+## Control Modes
 
-**ESC Mode**
-- Throttle range: 0–100%
+### ESC mode
+
+- Throttle: 0–100%
 - Default pulse range: 1000–2000 µs
 - Quick access to minimum throttle and 25% throttle
-
-**Servo Mode**
-- Position range: 0–180°
-- Default pulse range: 500–2500 µs
-- Center position: 90°
-
-Pulse ranges may need to be adjusted for your specific ESC or servo.
-
-## ⚙️ PWM Configuration
-
-The controller uses a nominal 50 Hz RC-style control signal.
 
 | ESC throttle | Pulse width |
 |---:|---:|
@@ -93,50 +77,54 @@ The controller uses a nominal 50 Hz RC-style control signal.
 | 75% | 1750 µs |
 | 100% | 2000 µs |
 
-These percentages describe the configured control pulse range, not actual motor RPM, torque, or thrust. Motor response is not necessarily linear.
+These percentages describe the configured control-pulse range, not actual motor RPM, torque, or thrust. Motor response is not necessarily linear. Confirm the pulse range and arming procedure supported by your ESC.
 
-## 🛡️ Safety
+### Servo mode
+
+- Position: 0–180°
+- Default pulse range: 500–2500 µs
+- Center: 90°
+
+Servo pulse limits vary by model. Reduce the range if the servo buzzes, overheats, or reaches its mechanical stops.
+
+## Customization
+
+You can change these settings in the source code:
+
+- `SIGNAL_PIN` — PWM output GPIO
+- `ESC_MIN_US` / `ESC_MAX_US` — ESC pulse limits
+- `SERVO_MIN_US` / `SERVO_MAX_US` — servo pulse limits
+- `FAILSAFE_MS` — command timeout
+- `AP_SSID` / `AP_PASSWORD` — Wi-Fi credentials
+
+## Safety
 
 **Remove all propellers before testing.**
 
 - Secure the motor and ESC before applying power.
 - Verify your ESC's supported input signal and arming procedure.
 - Some ESCs require throttle calibration before use.
-- Servo pulse limits vary. Reduce the configured range if the servo buzzes, overheats, or reaches its mechanical stops.
+- Never power a motor directly from an ESP32 GPIO.
 - The failsafe is a basic software timeout, not a certified flight-control safety system.
 - Do not use this project as the sole control or failsafe system for an aircraft.
 
 Use at your own risk.
 
-## 🔧 Customization
-
-You can modify the following settings in the source code:
-
-- `SIGNAL_PIN` — PWM output GPIO
-- `ESC_MIN_US` / `ESC_MAX_US` — ESC pulse limits
-- `SERVO_MIN_US` / `SERVO_MAX_US` — Servo pulse limits
-- `FAILSAFE_MS` — Command timeout
-- `AP_SSID` / `AP_PASSWORD` — Wi-Fi credentials
-
-## 📋 Dependencies
+## Dependencies
 
 - Arduino ESP32 core
 - ESP32Servo library
 
-The web interface is embedded in the firmware, so no external web server or frontend build system is required.
+The web interface is embedded in the firmware; no external web server or frontend build system is required.
 
-## 🤝 Contributing
+## Contributing
 
-Contributions, bug reports, hardware compatibility notes, and improvements are welcome.
+Bug reports, hardware compatibility notes, and improvements are welcome. If you test this project with another ESP32 board, ESC, or servo, please share your configuration and results.
 
-If you test this project with a different ESP32 board, ESC, or servo, feel free to share your configuration and results.
+## License
 
-## 📄 License
-
-This project is intended for open-source distribution. Add a `LICENSE` file to specify the terms under which others may use, modify, and redistribute the code.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-**Built for hobbyists, makers, and RC experimenters.**
-
-If you find this project useful, consider giving the repository a ⭐ on GitHub.
+Made for hobbyists, makers, and RC experimenters. If you find it useful, consider giving the repository a ⭐ on GitHub.
