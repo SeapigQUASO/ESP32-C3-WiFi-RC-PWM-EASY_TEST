@@ -1,0 +1,219 @@
+/*
+  ESP32-C3 Super Mini Wi-Fi RC Controller
+  - Phone connects to ESP32 access point, then opens http://192.168.4.1
+  - ESC mode: 0-100% maps to 1000-2000 us
+  - Servo mode: 0-180 degrees maps to 500-2500 us (adjust for your servo)
+  - Failsafe: output returns to minimum/center if browser stops sending keepalives
+  Safety: REMOVE PROPELLER before testing. Secure motor and ESC.
+*/
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESP32Servo.h>
+
+const char* AP_SSID = "ESP32-RC-Control";
+const char* AP_PASSWORD = "rccontrol"; // >= 8 characters; change this if desired
+
+const int SIGNAL_PIN = 4; // ESP32-C3 Super Mini pin marked "4"
+const int PWM_HZ = 50;
+
+const int ESC_MIN_US = 1000;
+const int ESC_MAX_US = 2000;
+const int SERVO_MIN_US = 500;
+const int SERVO_MAX_US = 2500;
+const int SERVO_CENTER_DEG = 90;
+
+const unsigned long FAILSAFE_MS = 1500;
+
+WebServer server(80);
+Servo outputServo;
+
+enum ControlMode { MODE_ESC, MODE_SERVO };
+ControlMode mode = MODE_ESC;
+int throttlePercent = 0;
+int servoAngle = SERVO_CENTER_DEG;
+unsigned long lastCommandMs = 0;
+bool failsafeActive = true;
+
+const char PAGE[] PROGMEM = R"HTML(
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESP32 RC Controller</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#151f32;--line:#2a3952;--text:#edf4ff;--muted:#a8b8d0;--blue:#58a6ff;--red:#ff6577;--green:#55d6a3}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#0b1220,#101a2c);color:var(--text);font-family:system-ui,-apple-system,sans-serif;padding:18px;max-width:680px;margin:auto}
+h1{font-size:25px;margin:8px 0 4px}.sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;margin:13px 0;box-shadow:0 8px 28px #0002}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.label{color:var(--muted);font-size:14px}
+.big{font-size:48px;font-weight:800;letter-spacing:-2px}.unit{font-size:16px;color:var(--muted);letter-spacing:0}
+input[type=range]{width:100%;height:36px;accent-color:var(--blue);margin:18px 0}
+button,select{border:1px solid var(--line);background:#22314a;color:var(--text);border-radius:12px;padding:13px 15px;font-size:15px;font-weight:650}
+button:active{transform:scale(.98)}.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.primary{background:var(--blue);color:#071321;border:0}.safe{background:#40202a;border-color:#733441;color:#ffdbe0}
+.stat{font-size:18px;font-weight:700}.pill{display:inline-block;padding:6px 10px;border-radius:99px;background:#26344a;font-size:12px;color:var(--muted)}
+.pill.ok{background:#123c32;color:#8cf2c8}.pill.warn{background:#4a2028;color:#ffb7c0}
+.note{font-size:13px;line-height:1.55;color:var(--muted)}.hidden{display:none}
+</style></head><body>
+<h1>ESP32 RC Controller</h1><div class="sub">Direct Wi-Fi Connection · Live Control Interface</div>
+<div class="card"><div class="row"><div><div class="label">Connection Status</div><div id="conn" class="stat">Connecting...</div></div><span id="safe" class="pill warn">Failsafe Active</span></div>
+<div class="row" style="margin-top:14px"><label for="mode">Control Mode</label><select id="mode"><option value="esc">ESC (Brushless Motor)</option><option value="servo">Servo Motor</option></select></div></div>
+<div class="card" id="escCard"><div class="row"><div><div class="label">Throttle Output</div><div class="big"><span id="pct">0</span><span class="unit"> %</span></div></div><span id="pulse" class="pill">1000 µs</span></div>
+<input id="throttle" type="range" min="0" max="100" step="1" value="0" aria-label="Throttle percentage">
+<div class="btnrow"><button id="minus">- 1%</button><button id="plus">+ 1%</button></div>
+<div class="btnrow" style="margin-top:10px"><button id="min" class="safe">Min Throttle 0%</button><button id="max" class="primary">Set 25%</button></div>
+<p class="note">ESC Mode: 0–100% maps to 1000–2000 µs. Calibration and arming requirements vary by ESC model.</p></div>
+<div class="card hidden" id="servoCard"><div class="row"><div><div class="label">Servo Angle</div><div class="big"><span id="deg">90</span><span class="unit">°</span></div></div><span id="servoPulse" class="pill">1500 µs</span></div>
+<input id="angle" type="range" min="0" max="180" step="1" value="90" aria-label="Servo angle">
+<div class="btnrow"><button id="left">- 5°</button><button id="right">+ 5°</button></div><button id="center" style="width:100%;margin-top:10px">Center 90°</button>
+<p class="note">Servo Mode: Default 500–2500 µs. If buzzing, heating up, or hitting mechanical limits, power off immediately and reduce pulse range.</p></div>
+<div class="card"><div class="row"><div><div class="label">Current Pulse Output</div><div class="stat" id="pulseDetail">1000 µs</div></div><div><div class="label">Signal Pin</div><div class="stat">GPIO 4</div></div></div>
+<button id="stop" class="safe" style="width:100%;margin-top:16px">Emergency Stop / Min Output</button></div>
+<div class="note">Safety Notice: Remove propeller and secure motor before testing. Do NOT connect ESC battery to GPIO. ESP32 and ESC signal grounds must be connected together.</div>
+<script>
+const $=id=>document.getElementById(id);
+let mode='esc', throttle=0, angle=90, lastSent='';
+async function send(force=false){
+  const key=mode+':'+(mode==='esc'?throttle:angle);
+  if(!force && key===lastSent) return;
+  lastSent=key;
+  try{
+    const r=await fetch(`/set?mode=${mode}&value=${mode==='esc'?throttle:angle}`,{cache:'no-store'});
+    if(!r.ok) throw Error('HTTP '+r.status);
+    const d=await r.json();
+    $('conn').textContent='Connected';
+    $('safe').textContent=d.failsafe?'Failsafe Active':'Controlling';
+    $('safe').className='pill '+(d.failsafe?'warn':'ok');
+    $('pulseDetail').textContent=d.pulse+' µs';
+    $('pulse').textContent=d.pulse+' µs'; $('servoPulse').textContent=d.pulse+' µs';
+  }catch(e){$('conn').textContent='Disconnected';$('safe').textContent='Reconnecting...';$('safe').className='pill warn';lastSent='';}
+}
+function render(){
+  $('pct').textContent=throttle; $('throttle').value=throttle;
+  $('deg').textContent=angle; $('angle').value=angle;
+  $('escCard').classList.toggle('hidden',mode!=='esc');
+  $('servoCard').classList.toggle('hidden',mode!=='servo');
+  send(true);
+}
+$('mode').onchange=()=>{mode=$('mode').value; if(mode==='esc') throttle=0; else angle=90; render();};
+$('throttle').oninput=()=>{throttle=+ $('throttle').value; $('pct').textContent=throttle; send();};
+$('angle').oninput=()=>{angle=+ $('angle').value; $('deg').textContent=angle; send();};
+$('minus').onclick=()=>{throttle=Math.max(0,throttle-1);render();};
+$('plus').onclick=()=>{throttle=Math.min(100,throttle+1);render();};
+$('min').onclick=()=>{throttle=0;render();};
+$('max').onclick=()=>{throttle=25;render();};
+$('left').onclick=()=>{angle=Math.max(0,angle-5);render();};
+$('right').onclick=()=>{angle=Math.min(180,angle+5);render();};
+$('center').onclick=()=>{angle=90;render();};
+$('stop').onclick=()=>{mode='esc';throttle=0;$('mode').value='esc';render();};
+setInterval(()=>send(true),500);
+</script></body></html>
+)HTML";
+
+void applyOutput() {
+  int pulse;
+  if (mode == MODE_ESC) {
+    pulse = map(throttlePercent, 0, 100, ESC_MIN_US, ESC_MAX_US);
+  } else {
+    pulse = map(servoAngle, 0, 180, SERVO_MIN_US, SERVO_MAX_US);
+  }
+  outputServo.writeMicroseconds(pulse);
+}
+
+void sendState() {
+  int pulse = mode == MODE_ESC
+      ? map(throttlePercent, 0, 100, ESC_MIN_US, ESC_MAX_US)
+      : map(servoAngle, 0, 180, SERVO_MIN_US, SERVO_MAX_US);
+
+  String json = "{\"mode\":\"";
+  json += (mode == MODE_ESC ? "esc" : "servo");
+  json += "\",\"value\":";
+  json += (mode == MODE_ESC ? throttlePercent : servoAngle);
+  json += ",\"pulse\":";
+  json += pulse;
+  json += ",\"failsafe\":";
+  json += (failsafeActive ? "true" : "false");
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+void handleSet() {
+  if (!server.hasArg("mode") || !server.hasArg("value")) {
+    server.send(400, "application/json", "{\"error\":\"missing mode/value\"}");
+    return;
+  }
+
+  String requestedMode = server.arg("mode");
+  int value = server.arg("value").toInt();
+
+  if (requestedMode == "esc") {
+    mode = MODE_ESC;
+    throttlePercent = constrain(value, 0, 100);
+  } else if (requestedMode == "servo") {
+    mode = MODE_SERVO;
+    servoAngle = constrain(value, 0, 180);
+  } else {
+    server.send(400, "application/json", "{\"error\":\"invalid mode\"}");
+    return;
+  }
+
+  lastCommandMs = millis();
+  failsafeActive = false;
+  applyOutput();
+  sendState();
+}
+
+void handleRoot() {
+  server.send_P(200, "text/html; charset=utf-8", PAGE);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  outputServo.setPeriodHertz(PWM_HZ);
+  outputServo.attach(SIGNAL_PIN, SERVO_MIN_US, SERVO_MAX_US);
+
+  // Safe initial output: minimum throttle.
+  mode = MODE_ESC;
+  throttlePercent = 0;
+  servoAngle = SERVO_CENTER_DEG;
+  outputServo.writeMicroseconds(ESC_MIN_US);
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  WiFi.setSleep(false);
+
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/set", HTTP_GET, handleSet);
+  server.onNotFound([]() {
+    server.send(404, "text/plain; charset=utf-8", "Not found");
+  });
+  server.begin();
+
+  lastCommandMs = millis();
+  failsafeActive = true;
+
+  Serial.println();
+  Serial.println("ESP32 RC Controller started");
+  Serial.print("Wi-Fi SSID: "); Serial.println(AP_SSID);
+  Serial.print("Wi-Fi password: "); Serial.println(AP_PASSWORD);
+  Serial.println("Open http://192.168.4.1");
+  Serial.println("ESC mode starts at minimum throttle.");
+}
+
+void loop() {
+  server.handleClient();
+
+  // If the phone/browser stops sending updates, return to safe output.
+  if (!failsafeActive && millis() - lastCommandMs > FAILSAFE_MS) {
+    failsafeActive = true;
+    if (mode == MODE_ESC) {
+      throttlePercent = 0;
+      outputServo.writeMicroseconds(ESC_MIN_US);
+    } else {
+      servoAngle = SERVO_CENTER_DEG;
+      outputServo.writeMicroseconds(1500);
+    }
+    Serial.println("FAILSAFE: command timeout, output made safe");
+  }
+  delay(2);
+}
