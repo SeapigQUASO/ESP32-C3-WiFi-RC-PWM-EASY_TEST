@@ -2,7 +2,7 @@
 
 # ESP32-C3 WiFi RC Controller
 
-**Control RC ESCs and servos from your smartphone — no app, no router, no internet required.**
+**Control and test RC ESCs and servos from your smartphone — no app, no router, no internet required.**
 
 [English](README.md) · [繁體中文](README.zh-TW.md)
 
